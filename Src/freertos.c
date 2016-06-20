@@ -56,7 +56,7 @@ osThreadId Task3Handle;
 osThreadId Task4Handle;
 osThreadId taskLed7SegHandle;
 
-uint8_t Rx_indx, Rx_data[3], Rx_Buffer[100], Transfer_cplt, idxTest, txDone = 0;
+uint8_t Rx_indx, Rx_data[2], Rx_Buffer[255], Transfer_cplt, idxTest, txDone = 0;
 
 uint8_t buffer[10],len=2;
 
@@ -66,7 +66,9 @@ volatile int licznikBussyRx=0;
 volatile uint32_t statusTX;
 volatile uint32_t statusRX;
 volatile uint32_t licznikRXBussyState;
-volatile uint32_t dmaHandler;
+volatile uint8_t timeDelayRxFlag;
+volatile uint8_t recivingRxFlag;
+
 
 /* USER CODE END Variables */
 
@@ -189,6 +191,30 @@ void taskLed7Seg(void const * argument)
 	for(;;)
 	{
 
+		//idle time uart 1
+//		if (timeDelayRxFlag == 0) {
+//			timeDelayRxFlag = 1;
+//		}
+//		else if (recivingRxFlag == 1)
+//		{
+//			recivingRxFlag = 0;
+//			Transfer_cplt = 1;
+//			Rx_indx = 0;
+//		}
+	 if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) == 1)
+		{
+		 __HAL_UART_CLEAR_IDLEFLAG(&huart1);
+		 HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin);
+			recivingRxFlag = 0;
+			Transfer_cplt = 1;
+			Rx_indx = 0;
+		}
+
+
+		//******************
+
+
+
 		if( (Transfer_cplt == 1) && (txDone == 0))
 		{
 			txDone = 1;
@@ -220,72 +246,37 @@ void taskLed7Seg(void const * argument)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 
-	if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_IDLE) )
-	{
-
-		//Transfer_cplt = 1;
-
-	}
-
-
-	__HAL_UART_FLUSH_DRREGISTER(&huart2);
-
-
-	//__HAL_UART_CLEAR_IDLEFLAG(huart);
-
-
-
-	//HAL_UART_DMAPause(huart);
-
 	if (Rx_indx==0)
 	{
-		for (uint8_t i=0;i<100;i++)
+		for (uint8_t i=0;i<255;i++)
 		{
 			Rx_Buffer[i]=0;
 		}
 	}
 
+
 	if (huart->Instance == USART1)
 		{
-		__HAL_UART_FLUSH_DRREGISTER(&huart1);
+		HAL_UART_DMAPause(huart);
+		__HAL_UART_FLUSH_DRREGISTER(huart);
 
-			if( Rx_data[0]!=13 )
-			{
+		Rx_Buffer[Rx_indx++] = Rx_data[0];
 
-				Rx_Buffer[Rx_indx++] = Rx_data[0];
-				if ( Rx_indx >= 100 )
-				{
-					Rx_indx = 0;
-				}
-			}
-			else
-			{
-				idxTest = Rx_indx;
-				Rx_indx=0;
-				Transfer_cplt = 1;
-			}
+		if ( Rx_indx >= 255 )
+		{
+			Rx_indx = 0;
+		}
 
+		timeDelayRxFlag = 0;
+		recivingRxFlag = 1;
 
-			//statusRX = HAL_UART_Receive_DMA(&huart1, Rx_data, 1);
-
-			  if (statusRX == HAL_OK) {
-				  licznikRXBussyState = 1;
-			  }
-			  else if (statusRX == HAL_ERROR)
-			  {
-				  licznikRXBussyState = 2;
-			  }
-			  else if (statusRX == HAL_BUSY)
-			  {
-				  licznikRXBussyState = 3;
-			  }
-
-
+		HAL_UART_DMAResume(huart);
 		}
 
 
 	if (huart->Instance == USART2)
 	{
+		__HAL_UART_FLUSH_DRREGISTER(huart);
 		if( Rx_data[0]!=13 )
 		{
 
@@ -323,8 +314,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 	}
 
-	//HAL_UART_DMAResume(huart);
-	HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin);
+
+	//HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin);
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
@@ -364,11 +355,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 	  }
 }
 
-//void HAL_DMA_IRQHandler(DMA_HandleTypeDef *hdma)
-//{
-//	//dmaHandler = 1;
-//
-//}
+
 
 
 void task2(void const * argument)
@@ -414,7 +401,7 @@ void task2(void const * argument)
 void task3(void const * argument)
 {
   /* Infinite loop */
-	static uint8_t data[100];
+	static uint8_t data[255];
 	static uint16_t size;
 
 	static int licznikOK = 0;
@@ -424,16 +411,19 @@ void task3(void const * argument)
   {
 	  osSemaphoreWait(testBinarySemHandle, osWaitForever);
 
-	  size = sprintf( (char *) data, "Semafor Task OK: %d, BUSSY: %d, ERROR: %d SIZE %d\n\r", (int) licznikOK , licznikAll++, (int)UartErrorCount, (int) size  );
+	  size = sprintf( (char *) data, "Semafor Task OK: %d, BUSSY: %d, ERROR: %d SIZE %d\r\n", (int) licznikOK , licznikAll++, (int)UartErrorCount, (int) size  );
 
 
-	  if (size > 99)
+
+
+	  if (size > 255)
 		{
-			size = 99;
+			size = 255;
 		}
 
-	//  statusTX = HAL_UART_Transmit_IT(&huart2, data , size);
+	  statusTX = HAL_UART_Transmit_IT(&huart2, Rx_Buffer , sizeof(Rx_Buffer));
 	  statusTX = HAL_UART_Transmit_IT(&huart1, data , size);
+
 
 	  if (statusTX == HAL_OK) {
 		  licznikOK++;
